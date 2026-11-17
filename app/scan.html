@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0c2f4a">
+  <title>Send us a message</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="mark">QR</span><span>QR Connect<small>BCX</small></span></div>
+  </header>
+  <main id="app" class="form">Loading…</main>
+  <script>
+    const parts = location.pathname.split('/').filter(Boolean)
+    const kind = parts[0]
+    const token = parts[1]
+    const countries = [
+      ['+27', '🇿🇦'], ['+264', '🇳🇦'], ['+267', '🇧🇼'], ['+263', '🇿🇼'], ['+260', '🇿🇲'],
+      ['+266', '🇱🇸'], ['+268', '🇸🇿'], ['+258', '🇲🇿'], ['+254', '🇰🇪'], ['+234', '🇳🇬'],
+      ['+44', '🇬🇧'], ['+1', '🇺🇸'], ['+971', '🇦🇪'], ['+91', '🇮🇳'], ['+49', '🇩🇪'], ['+61', '🇦🇺'],
+    ]
+    const queries = ['General enquiry', 'Product information', 'Request a meeting', 'Pricing', 'Partnership', 'Support', 'Other']
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))
+    }
+
+    function downloadCard() {
+      const frame = document.createElement('iframe')
+      frame.hidden = true
+      frame.src = `/${kind}/${encodeURIComponent(token)}/card.vcf`
+      document.body.appendChild(frame)
+    }
+
+    async function load() {
+      const response = await fetch(`/${kind}/${encodeURIComponent(token)}/info`)
+      const body = await response.json().catch(() => ({}))
+      const app = document.getElementById('app')
+      if (!response.ok) {
+        app.innerHTML = '<h1>This link is not valid.</h1>'
+        return
+      }
+      const options = countries.map(([code, flag]) => `<option value="${code}">${flag} ${code}</option>`).join('')
+      const types = ['<option value="">Select</option>', ...queries.map((item) => `<option>${escapeHtml(item)}</option>`)].join('')
+      app.innerHTML = `
+        <p class="who">${escapeHtml(body.name)} · ${escapeHtml(body.role)} · ${escapeHtml(body.organisation)}</p>
+        <h1>SEND US A MESSAGE</h1>
+        <p class="muted">The business card download starts automatically.</p>
+        <p><a class="link" href="/${kind}/${encodeURIComponent(token)}/card.vcf">Save the business card</a></p>
+        ${body.ended ? '<p class="banner">This event is no longer running. Your message goes to the general card.</p>' : ''}
+        <form id="message" class="panel grid">
+          <div id="error" class="full"></div>
+          <div>
+            <label for="firstName">Name <span class="req">*</span></label>
+            <input id="firstName" name="firstName" required autocomplete="given-name">
+          </div>
+          <div>
+            <label for="surname">Surname <span class="req">*</span></label>
+            <input id="surname" name="surname" required autocomplete="family-name">
+          </div>
+          <div>
+            <label for="email">Email <span class="req">*</span></label>
+            <input id="email" name="email" type="email" required autocomplete="email">
+          </div>
+          <div>
+            <label for="phone">Phone Number <span class="req">*</span></label>
+            <div class="phone">
+              <select id="countryCode" name="countryCode" aria-label="Country code" required>${options}</select>
+              <input id="phone" name="phone" inputmode="tel" placeholder="071 123 4567" required autocomplete="tel">
+            </div>
+          </div>
+          <div>
+            <label for="company">Company Name <span class="req">*</span></label>
+            <input id="company" name="company" required autocomplete="organization">
+          </div>
+          <div>
+            <label for="queryType">Type of Query <span class="req">*</span></label>
+            <select id="queryType" name="queryType" required>${types}</select>
+          </div>
+          <div class="full">
+            <label for="messageText">Message <span class="req">*</span></label>
+            <textarea id="messageText" name="message" required></textarea>
+          </div>
+          <div class="hp">
+            <label for="companyWebsite">Website</label>
+            <input id="companyWebsite" name="companyWebsite" tabindex="-1" autocomplete="off">
+          </div>
+          <button class="full" type="submit">Send message</button>
+        </form>`
+      downloadCard()
+      document.getElementById('message').addEventListener('submit', submit)
+    }
+
+    async function submit(event) {
+      event.preventDefault()
+      const form = event.currentTarget
+      const error = document.getElementById('error')
+      error.innerHTML = ''
+      const data = Object.fromEntries(new FormData(form))
+      const response = await fetch(`/${kind}/${encodeURIComponent(token)}/message`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        error.innerHTML = `<div class="error-box">${escapeHtml(body?.error?.message || 'Something went wrong. Try again.')}</div>`
+        return
+      }
+      document.getElementById('app').innerHTML = '<div class="thanks"><h1>Thank you</h1><p>Your message has been sent.</p></div>'
+    }
+
+    load()
+  </script>
+</body>
+</html>

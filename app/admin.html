@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QR Connect events</title>
+  <style>
+    :root { --navy: #0b3a5b; --line: #d5dde3; --ink: #222; --muted: #5c6b73; --bg: #f4f7f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: var(--ink); background: var(--bg); }
+    header { background: var(--navy); color: #fff; padding: 16px 24px; display: flex; justify-content: space-between; align-items: baseline; }
+    header a { color: #fff; }
+    main { display: grid; grid-template-columns: 320px 1fr; gap: 20px; padding: 20px; }
+    section, form, .panel { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+    h1, h2 { color: var(--navy); margin: 0 0 12px; }
+    h1 { font-size: 22px; }
+    h2 { font-size: 18px; }
+    label { display: block; font-size: 13px; font-weight: 700; margin: 10px 0 4px; }
+    input { width: 100%; font: 15px Arial, sans-serif; padding: 8px; border: 1px solid #b7c3cb; border-radius: 6px; }
+    button, .link { background: var(--navy); color: #fff; border: 0; border-radius: 6px; padding: 8px 12px; font: 700 14px Arial, sans-serif; text-decoration: none; display: inline-block; }
+    button.secondary { background: #fff; color: var(--navy); border: 1px solid var(--navy); }
+    .event { width: 100%; text-align: left; background: #fff; color: var(--ink); border: 1px solid var(--line); margin-top: 8px; }
+    .event strong { color: var(--navy); }
+    .muted { color: var(--muted); font-size: 13px; }
+    .error { color: #8a1f1f; }
+    img { width: 220px; height: auto; background: #fff; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { border-bottom: 1px solid var(--line); text-align: left; padding: 8px 6px; vertical-align: top; }
+    th { color: var(--navy); }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+    @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>BCX · QR Connect</strong>
+    <span>Event stand</span>
+  </header>
+  <main>
+    <div>
+      <form id="create">
+        <h1>New event</h1>
+        <p id="createError" class="error"></p>
+        <label for="name">Name</label>
+        <input id="name" name="name" required placeholder="Safripol">
+        <label for="startDate">Start date</label>
+        <input id="startDate" name="startDate" type="date" required>
+        <label for="endDate">End date</label>
+        <input id="endDate" name="endDate" type="date" required>
+        <label for="location">Location</label>
+        <input id="location" name="location">
+        <div class="row"><button type="submit">Create event</button></div>
+      </form>
+      <section>
+        <h2>Events</h2>
+        <div id="list">Loading…</div>
+      </section>
+    </div>
+    <section id="detail"><p class="muted">Create an event, or select one.</p></section>
+  </main>
+  <script>
+    let events = []
+    let selected = null
+
+    function formatDate(iso) {
+      if (!iso) return ''
+      const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number)
+      return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+    }
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))
+    }
+    function messageFrom(body) {
+      return body?.error?.message || 'Request failed.'
+    }
+    async function api(path, options) {
+      const response = await fetch(path, options)
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(messageFrom(body))
+      return body
+    }
+
+    async function load() {
+      const body = await api('/odata/v4/admin/Events?$expand=leads,attendances($expand=employee)&$orderby=createdAt desc')
+      events = body.value || []
+      const list = document.getElementById('list')
+      list.innerHTML = events.length ? '' : '<p class="muted">No events yet.</p>'
+      for (const event of events) {
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.className = 'event'
+        button.innerHTML = `<strong>${escapeHtml(event.name)}</strong><br><span class="muted">${formatDate(event.startDate)} – ${formatDate(event.endDate)} · ${escapeHtml(event.status)} · ${event.leads?.length || 0} leads</span>`
+        button.addEventListener('click', () => show(event.ID))
+        list.appendChild(button)
+      }
+      if (selected) show(selected)
+    }
+
+    function show(id) {
+      selected = id
+      const event = events.find((item) => item.ID === id)
+      const detail = document.getElementById('detail')
+      if (!event) { detail.innerHTML = '<p class="muted">Select an event.</p>'; return }
+      const url = `${location.origin}/e/${event.standToken}`
+      const leads = event.leads || []
+      detail.innerHTML = `
+        <h1>${escapeHtml(event.name)}</h1>
+        <p class="muted">${formatDate(event.startDate)} to ${formatDate(event.endDate)}${event.location ? ' · ' + escapeHtml(event.location) : ''} · ${escapeHtml(event.status)}</p>
+        <p><a href="${url}">${escapeHtml(url)}</a></p>
+        <img alt="Stand QR code" src="/e/${encodeURIComponent(event.standToken)}/qr.png">
+        <div class="row">
+          <a class="link" href="/e/${encodeURIComponent(event.standToken)}/screen" target="_blank">Client screen</a>
+          <a class="link" href="/e/${encodeURIComponent(event.standToken)}/print" target="_blank">Print stand sheet</a>
+          <button type="button" class="secondary" id="copy">Copy link</button>
+          <button type="button" class="secondary" id="close">Close event</button>
+          <button type="button" class="secondary" id="export">Export leads</button>
+        </div>
+        <h2>Leads</h2>
+        ${leads.length ? leadTable(leads) : '<p class="muted">No leads yet. Open the stand link and send a test visitor.</p>'}
+        <h2>Salesperson on the form</h2>
+        <form id="person">
+          <label for="firstName">First name</label>
+          <input id="firstName" name="firstName" required>
+          <label for="lastName">Last name</label>
+          <input id="lastName" name="lastName" required>
+          <div class="row"><button type="submit">Add to this event</button></div>
+        </form>`
+      document.getElementById('copy').onclick = () => navigator.clipboard.writeText(url)
+      document.getElementById('close').onclick = () => closeEvent(event.ID)
+      document.getElementById('export').onclick = () => exportLeads(event)
+      document.getElementById('person').onsubmit = (submit) => addPerson(submit, event)
+    }
+
+    function leadTable(leads) {
+      const rows = leads.map((lead) => `<tr>
+        <td>${escapeHtml(lead.visitorName)}</td>
+        <td>${escapeHtml(lead.visitorCompany)}</td>
+        <td>${escapeHtml(lead.visitorEmail)}</td>
+        <td>${escapeHtml(lead.visitorMobile)}</td>
+        <td>${escapeHtml(lead.visitorRole)}</td>
+      </tr>`).join('')
+      return `<table><thead><tr><th>Name</th><th>Company</th><th>Email</th><th>Mobile</th><th>Role</th></tr></thead><tbody>${rows}</tbody></table>`
+    }
+
+    async function closeEvent(id) {
+      if (!confirm('Close this event? Existing leads stay. The stand form stops accepting details.')) return
+      await api('/odata/v4/admin/closeEvent', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ID: id }),
+      })
+      await load()
+    }
+
+    function exportLeads(event) {
+      const header = ['name', 'company', 'email', 'mobile', 'role', 'note', 'consent', 'createdAt']
+      const lines = [header.join(',')]
+      for (const lead of event.leads || []) {
+        lines.push([lead.visitorName, lead.visitorCompany, lead.visitorEmail, lead.visitorMobile, lead.visitorRole, lead.note, lead.consentTextVersion, lead.createdAt]
+          .map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`).join(','))
+      }
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
+      const link = document.createElement('a')
+      link.href = URL.createObjectURL(blob)
+      link.download = `${event.name}-leads.csv`
+      link.click()
+    }
+
+    async function addPerson(submit, event) {
+      submit.preventDefault()
+      const form = submit.currentTarget
+      const data = Object.fromEntries(new FormData(form))
+      const employee = await api('/odata/v4/admin/Employees', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ firstName: data.firstName, lastName: data.lastName, active: true }),
+      })
+      await api('/odata/v4/admin/Attendances', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          employee_ID: employee.ID,
+          event_ID: event.ID,
+          personalStart: event.startDate,
+          personalEnd: event.endDate,
+        }),
+      })
+      await load()
+    }
+
+    document.getElementById('create').addEventListener('submit', async (submit) => {
+      submit.preventDefault()
+      const form = submit.currentTarget
+      const error = document.getElementById('createError')
+      error.textContent = ''
+      const data = Object.fromEntries(new FormData(form))
+      try {
+        const created = await api('/odata/v4/admin/Events', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(data),
+        })
+        form.reset()
+        selected = created.ID
+        await load()
+      } catch (cause) {
+        error.textContent = cause.message
+      }
+    })
+
+    load().catch((cause) => { document.getElementById('list').textContent = cause.message })
+  </script>
+</body>
+</html>

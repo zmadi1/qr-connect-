@@ -1,0 +1,19 @@
+{
+  "scopes": [
+    {
+      "name": "$XSAPPNAME.Marketing",
+      "description": "Marketing"
+    }
+  ],
+  "attributes": [],
+  "role-templates": [
+    {
+      "name": "Marketing",
+      "description": "generated",
+      "scope-references": [
+        "$XSAPPNAME.Marketing"
+      ],
+      "attribute-references": []
+    }
+  ]
+}

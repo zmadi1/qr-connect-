@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0c2f4a">
+  <title>QR code</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="client">
+  <main id="screen"></main>
+  <script>
+    const token = location.pathname.split('/').filter(Boolean)[1]
+    const screen = document.getElementById('screen')
+    const image = document.createElement('img')
+    image.alt = 'QR code'
+    image.src = `/s/${encodeURIComponent(token)}/qr.png`
+    screen.appendChild(image)
+    let version = ''
+    async function refresh() {
+      const response = await fetch(`/s/${encodeURIComponent(token)}/current`, { cache: 'no-store' })
+      if (!response.ok) {
+        screen.textContent = 'This card link is not valid.'
+        return
+      }
+      const body = await response.json()
+      if (body.version !== version) {
+        version = body.version
+        image.src = `/s/${encodeURIComponent(token)}/qr.png?v=${encodeURIComponent(body.version)}`
+        if (!image.isConnected) screen.replaceChildren(image)
+      }
+    }
+    refresh()
+    setInterval(refresh, 3000)
+  </script>
+</body>
+</html>

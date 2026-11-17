@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BCX event stand</title>
+  <style>
+    :root { color-scheme: light; --navy: #0b3a5b; --teal: #1f6f8b; --line: #d5dde3; --ink: #222; --muted: #5c6b73; --bg: #f4f7f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: var(--ink); background: var(--bg); }
+    header { background: var(--navy); color: #fff; padding: 18px 20px; }
+    header strong { font-size: 14px; letter-spacing: .04em; }
+    main { max-width: 440px; margin: 0 auto; padding: 20px 16px 40px; }
+    h1 { font-size: 28px; line-height: 1.2; margin: 0 0 8px; color: var(--navy); }
+    .meta { color: var(--muted); margin: 0 0 18px; }
+    form, .card { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+    label { display: block; font-size: 14px; font-weight: 700; margin: 12px 0 4px; }
+    input, select, textarea { width: 100%; font: 16px Arial, sans-serif; padding: 10px; border: 1px solid #b7c3cb; border-radius: 6px; }
+    textarea { min-height: 80px; resize: vertical; }
+    .consent { display: flex; gap: 10px; align-items: flex-start; margin: 16px 0; font-size: 14px; font-weight: 400; }
+    .consent input { width: auto; margin-top: 3px; }
+    button { width: 100%; background: var(--navy); color: #fff; border: 0; border-radius: 6px; padding: 12px; font: 700 16px Arial, sans-serif; }
+    .error { color: #8a1f1f; background: #fdecec; padding: 10px; border-radius: 6px; margin-bottom: 12px; }
+    .hp { position: absolute; left: -10000px; height: 0; width: 0; opacity: 0; }
+    .thanks h1 { font-size: 26px; }
+  </style>
+</head>
+<body>
+  <header><strong>BCX</strong></header>
+  <main id="app">Loading…</main>
+  <script>
+    const token = location.pathname.split('/').filter(Boolean)[1]
+    const consentText = 'I agree that BCX may use my name, company, email address, and mobile number to follow up with me about this event. BCX is the responsible party.'
+
+    function formatDate(iso) {
+      if (!iso) return ''
+      const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
+      return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
+    }
+
+    function messageFrom(body) {
+      return body?.error?.message || body?.error?.innererror?.errordetails?.[0]?.message || 'Something went wrong. Try again.'
+    }
+
+    async function load() {
+      const response = await fetch(`/rest/public/getStand(token='${encodeURIComponent(token)}')`)
+      const body = await response.json().catch(() => ({}))
+      const app = document.getElementById('app')
+      if (!response.ok) {
+        app.innerHTML = '<h1>This stand link is not valid.</h1>'
+        return
+      }
+      if (!body.open) {
+        app.innerHTML = `<h1>${escapeHtml(body.name || 'This event')}</h1><p class="meta">${escapeHtml(body.message || 'This event is no longer accepting details.')}</p>`
+        return
+      }
+      const dates = `${formatDate(body.startDate)} to ${formatDate(body.endDate)}`
+      const people = body.salespeople || []
+      const salesperson = people.length ? `
+        <label for="employeeId">Who did you speak to?</label>
+        <select id="employeeId">
+          <option value="">No one in particular</option>
+          ${people.map((person) => `<option value="${escapeHtml(person.ID)}">${escapeHtml(person.name)}</option>`).join('')}
+        </select>` : ''
+      app.innerHTML = `
+        <h1>${escapeHtml(body.name)}</h1>
+        <p class="meta">${escapeHtml(dates)}${body.location ? ' · ' + escapeHtml(body.location) : ''}</p>
+        <form id="lead">
+          <div id="error"></div>
+          <label for="visitorName">Name</label>
+          <input id="visitorName" name="visitorName" required autocomplete="name">
+          <label for="visitorCompany">Company</label>
+          <input id="visitorCompany" name="visitorCompany" required autocomplete="organization">
+          <label for="visitorEmail">Email</label>
+          <input id="visitorEmail" name="visitorEmail" type="email" required autocomplete="email">
+          <label for="visitorMobile">Mobile</label>
+          <input id="visitorMobile" name="visitorMobile" type="tel" required autocomplete="tel">
+          <label for="visitorRole">Role</label>
+          <input id="visitorRole" name="visitorRole" autocomplete="organization-title">
+          <label for="note">Note</label>
+          <textarea id="note" name="note"></textarea>
+          ${salesperson}
+          <label class="hp" for="companyWebsite">Website</label>
+          <input class="hp" id="companyWebsite" name="companyWebsite" tabindex="-1" autocomplete="off">
+          <label class="consent"><input id="consentGiven" type="checkbox"> <span>${consentText}</span></label>
+          <button type="submit">Send my details</button>
+        </form>`
+      document.getElementById('lead').addEventListener('submit', submit)
+    }
+
+    async function submit(event) {
+      event.preventDefault()
+      const form = event.currentTarget
+      const error = document.getElementById('error')
+      error.innerHTML = ''
+      const data = Object.fromEntries(new FormData(form))
+      const response = await fetch('/rest/public/submitStandLead', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          visitor: {
+            visitorName: data.visitorName,
+            visitorCompany: data.visitorCompany,
+            visitorEmail: data.visitorEmail,
+            visitorMobile: data.visitorMobile,
+            visitorRole: data.visitorRole,
+            note: data.note,
+            employeeId: data.employeeId || null,
+            companyWebsite: data.companyWebsite,
+            consentGiven: document.getElementById('consentGiven').checked,
+          },
+        }),
+      })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}))
+        error.innerHTML = `<div class="error">${escapeHtml(messageFrom(body))}</div>`
+        return
+      }
+      document.getElementById('app').innerHTML = '<div class="card thanks"><h1>Thank you</h1><p>Your details have been sent to BCX for this event.</p></div>'
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))
+    }
+
+    load()
+  </script>
+</body>
+</html>

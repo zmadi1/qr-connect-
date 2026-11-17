@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0c2f4a">
+  <title>QR Connect</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="mark">QR</span><span>QR Connect<small>Internal</small></span></div>
+    <button type="button" id="logout">Sign out</button>
+  </header>
+  <main id="app" class="stack">Loading…</main>
+  <script>
+    let state = null
+    let sendingLead = false
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))
+    }
+    function safeHttp(value) {
+      try {
+        const url = new URL(String(value || ''))
+        if (url.protocol === 'http:' || url.protocol === 'https:') return url.href
+      } catch { /* leave a bad address unlinked */ }
+      return ''
+    }
+    function when(iso) {
+      if (!iso) return ''
+      return new Date(iso).toLocaleString('en-ZA', {
+        timeZone: 'Africa/Johannesburg', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+      })
+    }
+    async function api(path, options) {
+      const response = await fetch(path, options)
+      const body = await response.json().catch(() => ({}))
+      if (response.status === 401) { location.href = '/login'; throw new Error('Login required.') }
+      if (!response.ok) throw new Error(body?.error?.message || 'Request failed.')
+      return body
+    }
+
+    async function load(person) {
+      const query = person ? `?person=${encodeURIComponent(person)}` : ''
+      state = await api(`/api/workspace${query}`)
+      render()
+    }
+
+    function render() {
+      const view = state.viewing
+      const screen = `${location.origin}/s/${encodeURIComponent(view.cardToken)}`
+      const website = safeHttp(view.website)
+      const websiteLink = website ? `<br><a href="${escapeHtml(website)}">${escapeHtml(website)}</a>` : ''
+      const people = state.people.length > 1 ? `
+        <label for="person">Open</label>
+        <select id="person">${state.people.map((person) => `<option value="${person.ID}" ${person.ID === view.ID ? 'selected' : ''}>${escapeHtml(person.firstName)} ${escapeHtml(person.lastName)}${person.self ? ' (you)' : ''}</option>`).join('')}</select>` : ''
+      const choices = state.canEdit ? `
+        <label class="choice"><input type="radio" name="display" value="" ${state.active.mode === 'default' ? 'checked' : ''}> General card</label>
+        ${state.choices.map((event) => `<label class="choice"><input type="radio" name="display" value="${event.ID}" ${state.active.eventId === event.ID ? 'checked' : ''}> ${escapeHtml(event.name)}<br><span class="muted">${when(event.startAt)} – ${when(event.endAt)}</span></label>`).join('')}` : `<p>${state.active.mode === 'event' ? escapeHtml(state.active.eventName) : 'General card'}</p>`
+      const create = state.canEdit ? `
+        <section>
+          <h2>New event</h2>
+          <p class="muted">Times are South Africa time. You can put this QR on the client screen as soon as the event exists. When the end time passes, the screen returns to the general card.</p>
+          <p id="createError" class="error"></p>
+          <form id="create">
+            <label for="name">Event name</label>
+            <input id="name" name="name" required placeholder="Safripol">
+            <div class="grid">
+              <div><label for="startAt">Starts</label><input id="startAt" name="startAt" type="datetime-local" required></div>
+              <div><label for="endAt">Ends</label><input id="endAt" name="endAt" type="datetime-local" required></div>
+            </div>
+            <label for="location">Location</label>
+            <input id="location" name="location">
+            <div class="row"><button type="submit">Create event</button></div>
+          </form>
+        </section>` : ''
+      document.getElementById('app').innerHTML = `
+        <section>
+          <h1>${escapeHtml(view.firstName)} ${escapeHtml(view.lastName)}</h1>
+          ${people}
+          <p class="muted">${state.profileSource === 'successfactors' ? 'Loaded from SuccessFactors.' : 'Sample directory until SuccessFactors is connected.'} Only you and your line manager can see this.</p>
+          <div class="card">
+            <img class="photo" alt="" src="/api/photo/${encodeURIComponent(view.ID)}">
+            <div>
+              <p><strong>${escapeHtml(view.role)}</strong><br>${escapeHtml(view.organisation)}</p>
+              <p>${escapeHtml(view.cellphone)}<br><a href="mailto:${escapeHtml(view.email)}">${escapeHtml(view.email)}</a>${websiteLink}</p>
+            </div>
+          </div>
+        </section>
+        ${leadsSection()}
+        <section>
+          <h2>Client screen</h2>
+          <p class="muted">Open this on the screen clients look at. It shows only the QR code you select below.</p>
+          <p class="screen-url"><a href="${escapeHtml(screen)}">${escapeHtml(screen)}</a></p>
+          <div class="row">
+            <a class="link" href="${escapeHtml(screen)}" target="_blank" rel="noopener noreferrer">Open client screen</a>
+            <a class="link" href="/s/${encodeURIComponent(view.cardToken)}/print" target="_blank" rel="noopener noreferrer">Print QR</a>
+            <button type="button" class="secondary" id="copy">Copy link</button>
+          </div>
+        </section>
+        <section>
+          <h2>QR code clients see</h2>
+          <p>Clients currently see: <strong>${state.active.mode === 'event' ? escapeHtml(state.active.eventName) : 'General card'}</strong></p>
+          <p class="muted">Choose the general card, or any event that has not ended. When that end time passes, the client screen returns to the general card.</p>
+          <div id="choices">${choices}</div>
+          <p id="displayError" class="error"></p>
+        </section>
+        ${create}`
+      const person = document.getElementById('person')
+      if (person) person.onchange = () => load(person.value).catch(showLoadError)
+      document.getElementById('copy').onclick = () => navigator.clipboard.writeText(screen)
+      document.getElementById('create')?.addEventListener('submit', onCreate)
+      document.querySelectorAll('input[name="display"]').forEach((input) => {
+        input.addEventListener('change', () => onDisplay(input.value))
+      })
+      document.querySelectorAll('button.snow').forEach((button) => {
+        button.onclick = () => sendLead(button)
+      })
+    }
+
+    function leadsSection() {
+      const total = state.groups.reduce((sum, item) => sum + item.leads.length, 0)
+      const summary = total
+        ? `${total} message${total === 1 ? '' : 's'} saved. They stay with this card.`
+        : 'Messages sent from a QR code appear here and stay saved.'
+      const snow = state.serviceNow?.configured
+        ? 'Send a lead to ServiceNow with one click. A lead that already has a number is kept as it is.'
+        : 'Send to ServiceNow is on each lead. Fill in servicenow.env, or set the same names on the Cloud Foundry app, and restart.'
+      return `<section id="leads">
+        <h2>Potential leads</h2>
+        <p class="muted">${summary}</p>
+        <p class="muted">${snow}</p>
+        ${state.groups.map(group).join('') || '<p class="muted">No leads yet.</p>'}
+      </section>`
+    }
+
+    function group(item) {
+      const status = item.kind === 'general'
+        ? 'Default card. Used when no event is selected, and after the selected event ends.'
+        : `${when(item.startAt)} – ${when(item.endAt)}${item.location ? ' · ' + escapeHtml(item.location) : ''}${item.valid ? '' : ' · Ended'}`
+      const badge = item.active ? ' <span class="badge">On the client screen</span>' : ''
+      const leads = item.leads.length ? item.leads.map(lead).join('') : '<p class="muted">No potential leads yet.</p>'
+      const printHref = item.kind === 'general'
+        ? `/c/${encodeURIComponent(state.viewing.cardToken)}/print`
+        : `/e/${encodeURIComponent(item.standToken)}/print`
+      return `<h3>${escapeHtml(item.name)}${badge}</h3><p class="muted">${status}</p><p><a class="link" href="${printHref}" target="_blank" rel="noopener noreferrer">Print QR</a></p>${leads}`
+    }
+
+    function lead(item) {
+      const rows = [
+        ['Name', item.firstName],
+        ['Surname', item.surname],
+        ['Email', item.email],
+        ['Phone', `${item.countryCode || ''} ${item.phone || ''}`.trim()],
+        ['Company', item.company],
+        ['Type of query', item.queryType],
+        ['Message', item.message],
+        ['Received', when(item.createdAt)],
+      ]
+      return `<article class="lead">
+        <strong>Potential lead</strong>
+        <dl class="facts">${rows.map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>
+        ${snowAction(item)}
+      </article>`
+    }
+
+    function snowAction(item) {
+      if (item.snowNumber) {
+        const sent = item.snowSentAt ? ` · ${when(item.snowSentAt)}` : ''
+        return `<p class="sent">Sent to ServiceNow · ${escapeHtml(item.snowNumber)}${sent}</p>`
+      }
+      return `<p class="error snow-error" id="snow-${escapeHtml(item.ID)}"></p><button type="button" class="secondary snow" data-lead="${escapeHtml(item.ID)}">Send to ServiceNow</button>`
+    }
+
+    async function onCreate(event) {
+      event.preventDefault()
+      const form = event.currentTarget
+      const error = document.getElementById('createError')
+      error.textContent = ''
+      const data = Object.fromEntries(new FormData(form))
+      try {
+        await api('/api/events', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) })
+        await load(state.viewing.ID)
+      } catch (cause) {
+        error.textContent = cause.message
+      }
+    }
+
+    async function sendLead(button) {
+      const error = document.getElementById(`snow-${button.dataset.lead}`)
+      sendingLead = true
+      button.disabled = true
+      if (error) error.textContent = ''
+      try {
+        await api(`/api/leads/${encodeURIComponent(button.dataset.lead)}/servicenow`, { method: 'POST' })
+        await load(state.viewing.ID)
+      } catch (cause) {
+        if (error) error.textContent = cause.message
+        button.disabled = false
+      } finally {
+        sendingLead = false
+      }
+    }
+
+    async function onDisplay(eventId) {
+      const error = document.getElementById('displayError')
+      error.textContent = ''
+      try {
+        await api('/api/display', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ eventId: eventId || null }) })
+        await load(state.viewing.ID)
+      } catch (cause) {
+        error.textContent = cause.message
+      }
+    }
+
+    function showLoadError(cause) {
+      document.getElementById('app').textContent = cause.message
+    }
+
+    document.getElementById('logout').onclick = async () => {
+      await fetch('/logout', { method: 'POST' })
+      location.href = '/login'
+    }
+    load().catch(showLoadError)
+    setInterval(() => {
+      const active = document.activeElement
+      if (sendingLead) return
+      if (active && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName)) return
+      load(state?.viewing?.ID).catch(() => {})
+    }, 12000)
+  </script>
+</body>
+</html>

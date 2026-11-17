@@ -1,0 +1,12 @@
+node_modules/
+db.sqlite
+db.sqlite-shm
+db.sqlite-wal
+gen/
+mta_archives/
+*.mtar
+db/.session-secret
+db.snapshot.sqlite
+.cdsrc-private.json
+successfactors.env
+servicenow.env

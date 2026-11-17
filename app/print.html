@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0c2f4a">
+  <title>Print QR code</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="sheet">
+  <main id="sheet">Loading…</main>
+  <script>
+    const parts = location.pathname.split('/').filter(Boolean)
+    const kind = parts[0]
+    const token = parts[1]
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))
+    }
+
+    async function load() {
+      const response = await fetch(`/${kind}/${encodeURIComponent(token)}/sheet`)
+      const body = await response.json().catch(() => ({}))
+      const sheet = document.getElementById('sheet')
+      if (!response.ok) {
+        sheet.textContent = body?.error?.message || 'This QR link is not valid.'
+        return
+      }
+      const lines = (body.lines || []).map((line) => escapeHtml(line)).join('<br>')
+      sheet.innerHTML = `
+        <p class="kicker">${escapeHtml(body.kicker || 'BCX')}</p>
+        <h1>${escapeHtml(body.title)}</h1>
+        <p>${lines}</p>
+        <img class="qr" alt="QR code" src="${escapeHtml(body.qr)}">
+        <p>${escapeHtml(body.prompt)}</p>
+        <p class="sheet-actions"><button type="button" id="print">Print or save as PDF</button></p>`
+      document.getElementById('print').onclick = () => window.print()
+    }
+
+    load()
+  </script>
+</body>
+</html>
